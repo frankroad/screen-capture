@@ -1,0 +1,202 @@
+require('./../css/index.less');
+require('./../css/sidebar.less');
+import React, {Component} from 'react';
+import Header from './header';
+import Page from './page';
+import Collection from './collection';
+import Contact from './contact';
+import constant from './constant';
+import user from './user';
+import Desktop from './desktop';
+
+export default class Index extends Component {
+
+  constructor() {
+    super();
+    this.state = {
+      api: constant.host + "api/v1/collections",
+      desktop_api: constant.host + "api/v1/desktop",
+      result: {"data": []},
+      id: '',
+      sidebar_status: 0,
+      sidebar_clear: 0,
+      page_status: true,
+      collection_status: false,
+      desktop_status: false,
+      qr_code_url: '',
+      qr_code_msg: '',
+      desktop_url: "http://static.pictureknow.com/c2c4503947e9488ead23093e21bd65af.png"
+    };
+  }
+
+  componentWillMount() {
+    let _this = this;
+    let userId = '';
+    user.get().then((options) => {
+      if(options.userId) {
+        userId = options.userId
+      }
+      if (options.desktop) {
+        let desktop = options.desktop;
+        let desktop_url = this.state.desktop_url;
+        if (options.desktop_url) {
+          desktop_url = options.desktop_url;
+        }
+        _this.setState({
+          page_status: desktop.page_status,
+          collection_status: desktop.collection_status,
+          desktop_status: desktop.desktop_status,
+          desktop_url: desktop_url,
+        });
+      }
+      let api = _this.state.api + "?userId=" + userId + "&version=" + constant.version;
+      chrome.extension.sendRequest({"operation": "get", "url": api}, function (res) {
+        if (res.status) {
+          _this.setState({
+            result: res.data,
+            qr_code_url: res.data.url,
+            qr_code_msg: res.data.msg,
+          });
+        }
+      })
+    });
+
+  }
+
+  handleMouseHover() {
+    this.setState({
+      sidebar_status: 1
+    });
+  }
+
+  handleMouseLeave() {
+    this.setState({
+      sidebar_clear: 0
+    });
+  }
+
+  handlePickUp() {
+    this.setState({
+      sidebar_status: 0,
+      sidebar_clear: 1
+    });
+  }
+
+  handleClick(item, id) {
+    let qr_code_url = '';
+    let qr_code_msg = '';
+    let page_status;
+    let collection_status;
+    let desktop_status;
+    this.state.result.data.forEach(function (item) {
+      if (item.id == id) {
+        qr_code_url = item.qr_code;
+        qr_code_msg = item.qr_code_msg;
+      }
+    });
+    if (item == "page") {
+      page_status = true;
+      collection_status = false;
+      desktop_status = false;
+    } else if (item == "collection") {
+      page_status = false;
+      collection_status = true;
+      desktop_status = false;
+    } else if (item == "desktop") {
+      page_status = !(this.state.page_status || this.state.collection_status);
+      collection_status = false;
+      desktop_status = this.state.page_status || this.state.collection_status;
+    }
+    this.setState({
+      page_status: page_status,
+      collection_status: collection_status,
+      desktop_status: desktop_status,
+      id: id,
+      qr_code_url: this.state.result.url,
+      qr_code_msg: this.state.result.msg
+    });
+    if (collection_status) {
+      page_status = true;
+      collection_status = false;
+    }
+    let desktop = {"page_status": page_status, "collection_status": collection_status, "desktop_status": desktop_status};
+    user.get().then((options) => {
+      options.desktop = desktop;
+      user.save(options);
+    });
+  }
+
+  handleRenew() {
+    let _this = this;
+    chrome.extension.sendRequest({"operation": "get", "url": this.state.desktop_api}, function (res) {
+      if (res.status) {
+        let desktop_url = res.data.url;
+        _this.setState({
+          desktop_url: desktop_url
+        });
+        user.get().then((options) => {
+          options.desktop_url = desktop_url;
+          user.save(options);
+        });
+      }
+    })
+  }
+
+  get_header_sidebar() {
+    if (this.state.page_status || this.state.collection_status) {
+      return (
+        <div>
+          <Header />
+          <div className={this.state.sidebar_clear ? "sidebar sidebar-clear" : "sidebar"} style={{"opacity": this.state.sidebar_status}} onMouseEnter={this.handleMouseHover.bind(this)} onMouseLeave={this.handleMouseLeave.bind(this)}>
+            <a href="#" onClick={this.handleClick.bind(this, "page", "")}>
+              <div className="logo">
+                <img src="http://static.pictureknow.com/75681989ab3a4d80aa9268450b7f28c5.png" />
+              </div>
+            </a>
+              {
+                this.state.result.data.map((item) => (
+                  <a href="#" key={item.id} onClick={this.handleClick.bind(this, "collection", item.id)}>
+                    <div className={this.state.id == item.id ? "category category-hover" : "category"}>
+                      <img src={item.cover} />
+                      <span>{item.name}</span>
+                    </div>
+                  </a>
+            ))}
+            <button onClick={this.handlePickUp.bind(this)} className="pick-up"></button>
+          </div>
+        </div>
+      )
+    } else {
+      return null;
+    }
+  }
+
+  get_contact() {
+    return (
+      <div className = "contact">
+        {this.state.desktop_status &&
+          <div className="item renew" onClick={this.handleRenew.bind(this)}></div>
+        }
+        <div className="item bookmark" onClick={this.handleClick.bind(this, "desktop", "")} ></div>
+        <div className="item wechat">
+          <div className="qr-code">
+            <img src={this.state.qr_code_url} />
+            <p>{this.state.qr_code_msg}</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  render() {
+    return (
+      <div className="index">
+        {this.get_header_sidebar()}
+        <Desktop visible={this.state.desktop_status} url={this.state.desktop_url}/>
+        <Page visible={this.state.page_status}/>
+        <Collection visible={this.state.collection_status} id={this.state.id}/>
+        {this.get_contact()}
+      </div>
+    )
+  }
+}
